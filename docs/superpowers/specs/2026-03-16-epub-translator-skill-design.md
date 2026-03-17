@@ -14,7 +14,7 @@ A Claude Code skill that translates ePub files from one language to another with
 | Processing granularity | Multi-paragraph batches (~2000-3000 chars) | Balances context quality with manageable chunk size. |
 | Resumability | Chapter-level file-based checkpoints | Translated XHTML files saved to `_translated/` dir; already-done files skipped on re-run. |
 | ePub processing tool | Pure shell (zip/unzip) | Zero external dependencies. Claude reads/writes files directly. |
-| Metadata translation | Translate everything | Book title, TOC entries, chapter headings, dc:language — full localization. |
+| Metadata translation | Translate everything except author names | Book title, TOC entries, chapter headings, dc:language — full localization. Author names (dc:creator) left as-is. |
 
 ## Skill File Structure
 
@@ -115,10 +115,11 @@ For each XHTML file in spine order:
   - `<dc:language>` → target language code (e.g., `zh`, `ja`, `ko`)
   - `<dc:title>` → translated title
   - `<dc:description>` → translated description (if present)
+  - `<dc:creator>` → leave as-is (author names are not translated per publishing convention)
 - Save updated `content.opf` to `_translated/`
 
 ### Step 9: Repackage ePub
-- Create an output staging directory by copying the entire extracted ePub structure
+- Create an output staging directory by copying the extracted ePub structure (excluding `_translated/`)
 - Overlay translated files from `_translated/` onto the staging copy, specifically:
   - All translated XHTML content files
   - Translated TOC file(s) (toc.ncx, toc.xhtml)
