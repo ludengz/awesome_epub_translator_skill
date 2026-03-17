@@ -137,6 +137,7 @@ This prevents context window exhaustion on large books.
 - Use the Read tool to read the XHTML file from the work directory
 - For files >2000 lines, use offset/limit to read in segments
 - Note the complete file structure: XML declaration, `<head>`, `<body>`
+- **Encoding check**: If the XML declaration specifies an encoding other than `utf-8` (e.g., `encoding="iso-8859-1"`), warn the user and proceed with caution
 
 #### 6.3: Identify Translatable Content
 Within `<body>`, identify all translatable block elements:
@@ -285,9 +286,11 @@ zip -r "$output_path" * -x mimetype
 **Option B: If `zip` is not available (common on Windows), use Python:**
 ```bash
 python -c "
-import zipfile, os
-os.chdir('$staging_dir')
-with zipfile.ZipFile('$output_path', 'w') as zf:
+import zipfile, os, sys
+staging = sys.argv[1]
+output = sys.argv[2]
+os.chdir(staging)
+with zipfile.ZipFile(output, 'w') as zf:
     zf.write('mimetype', 'mimetype', compress_type=zipfile.ZIP_STORED)
     for root, dirs, files in os.walk('.'):
         dirs.sort()
@@ -297,7 +300,7 @@ with zipfile.ZipFile('$output_path', 'w') as zf:
             if arcname != 'mimetype':
                 zf.write(p, arcname, compress_type=zipfile.ZIP_DEFLATED)
 print('ePub packaged successfully')
-"
+" "$staging_dir" "$output_path"
 ```
 
 Check which is available with `which zip` — if not found, use the Python fallback.
