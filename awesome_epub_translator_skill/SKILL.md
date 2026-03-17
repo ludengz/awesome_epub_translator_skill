@@ -1,5 +1,5 @@
 ---
-name: epub-translator
+name: awesome-epub-translator
 description: >
   Translate an ePub file from one language to another with high-quality AI translation.
   Preserves formatting, inline HTML tags, images, and styles.
