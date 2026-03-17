@@ -191,3 +191,118 @@ Reconstruct the complete XHTML file:
 1. Create the necessary subdirectories: `mkdir -p "<work_dir>/_translated/<subdirs>/"`
 2. Write the translated XHTML to `<work_dir>/_translated/<relative_path>` using the Write tool
 3. Report: "Translated: <filename> (X/N)"
+
+### Step 7: Translate TOC
+
+**Check checkpoint first:** If `_translated/` already has the TOC file(s), skip this step.
+
+**If both `toc.ncx` and `toc.xhtml` exist**, present them to yourself in a single translation batch to guarantee consistent chapter title translations.
+
+#### toc.ncx (ePub 2)
+- Read the file from the work directory
+- Translate only the `<text>` content inside each `<navLabel>` element
+- Do NOT modify `<content src="..."/>` attributes
+- Preserve all XML structure and attributes
+
+#### toc.xhtml (ePub 3)
+- Read the file from the work directory
+- Translate `<nav epub:type="toc">`: all anchor text in the navigation list
+- Translate `<nav epub:type="landmarks">`: translate labels (e.g., "Cover" → target language equivalent)
+- Do NOT translate `<nav epub:type="page-list">` entries
+- Do NOT modify any `href` attributes
+- Update `lang` and `xml:lang` attributes on `<html>` tag
+
+Save both to `_translated/` preserving relative paths.
+
+### Step 8: Update Metadata in content.opf
+
+1. Read the original `content.opf` from the work directory
+2. Make these changes:
+   - `<dc:language>` → change to target language code (e.g., `en` → `zh`)
+   - `<dc:title>` → translate the book title
+   - `<dc:description>` → translate the description (if present)
+   - `<dc:creator>` → **leave unchanged** (author names are not translated)
+3. **Bilingual mode only:** If bilingual CSS needs to be added:
+   - If no CSS file was found in Step 5: add a new manifest item for `bilingual.css`
+   - This is handled in Step 9
+4. Ensure the target directory exists: `mkdir -p "<work_dir>/_translated/<content.opf parent dir>/"`
+5. Save the modified content.opf to `<work_dir>/_translated/<content.opf relative path>`
+
+### Step 9: Repackage ePub
+
+#### 9.1: Create Staging Directory
+```bash
+staging_dir="<work_dir>/_staging"
+mkdir -p "$staging_dir"
+```
+
+#### 9.2: Copy Original Structure (excluding work artifacts)
+```bash
+cd "<work_dir>"
+# Copy everything except _translated/ and _staging/
+for item in $(ls -A | grep -v '^_translated$' | grep -v '^_staging$'); do
+  cp -r "$item" "$staging_dir/"
+done
+```
+
+#### 9.3: Overlay Translated Files
+```bash
+# Copy all translated files over the staging copy, preserving directory structure
+cp -r "<work_dir>/_translated/"* "$staging_dir/" 2>/dev/null
+# Note: style_profile.md will be copied too but won't affect the ePub
+# Remove it from staging to keep the ePub clean
+rm -f "$staging_dir/style_profile.md"
+```
+
+#### 9.4: Bilingual CSS Injection (bilingual mode only)
+If bilingual mode is active:
+1. Check if a main CSS file exists in the staging directory (found in Step 5)
+2. If yes: append to the end of that CSS file:
+   ```css
+
+   /* Bilingual translation styles */
+   .translated { color: #555555; font-size: 0.95em; margin-top: 0.2em; }
+   ```
+3. If no CSS file exists:
+   - Create `<content_dir>/Styles/bilingual.css` with the above CSS rule
+   - Add to `content.opf` manifest: `<item id="bilingual-css" href="Styles/bilingual.css" media-type="text/css"/>`
+   - Add `<link>` reference in each translated XHTML file's `<head>`
+
+#### 9.5: Package as ePub ZIP
+
+```bash
+cd "$staging_dir"
+
+# Determine output path
+output_path="<user_specified_or_default>"
+# Default: <source_dir>/<original_name>_<target_lang>.epub
+
+# Step 1: mimetype MUST be first and uncompressed
+zip -0 -X "$output_path" mimetype
+
+# Step 2: Add everything else (compressed)
+zip -r "$output_path" * -x mimetype
+```
+
+#### 9.6: Verify Output
+```bash
+ls -la "$output_path"
+# Check file size is > 0 and reasonable
+```
+
+If the output file is 0 bytes or missing, report a packaging error and STOP.
+
+### Step 10: Cleanup and Report
+
+Report to the user:
+- Output file path and size
+- Number of chapters translated
+- Translation mode used (pure or bilingual)
+- Target language
+
+Ask: "Would you like me to keep the work directory (`<work_dir>/`) for debugging, or clean it up?"
+
+If cleanup requested:
+```bash
+rm -rf "<work_dir>"
+```
