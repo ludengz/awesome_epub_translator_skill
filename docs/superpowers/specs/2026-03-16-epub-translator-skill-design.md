@@ -15,6 +15,7 @@ A Claude Code skill that translates ePub files from one language to another with
 | Session management | Max 3 XHTML files per session, then pause | Prevents context window exhaustion on large books; checkpoint enables cross-session continuation. |
 | Resumability | Chapter-level file-based checkpoints | Translated XHTML files saved to `_translated/` dir; already-done files skipped on re-run. |
 | ePub processing tool | Pure shell (zip/unzip) | Zero external dependencies. Claude reads/writes files directly. |
+| Translation style | Style Profile system (user hint > metadata inference > first-chapter anchor) | Prevents "flat, neutral AI tone"; ensures genre-appropriate translation voice persisted across sessions. |
 | Metadata translation | Translate everything except author names | Book title, TOC entries, chapter headings, dc:language — full localization. Author names (dc:creator) left as-is. |
 
 ## Skill File Structure
@@ -32,7 +33,7 @@ epub-translator/
 ### SKILL.md
 
 - **Frontmatter**: `name: epub-translator`, description covers trigger phrases ("translate an ePub", "翻译电子书", etc.)
-- **Input parameters**: source ePub path, target language, output mode (pure/bilingual), output path (optional)
+- **Input parameters**: source ePub path, target language, output mode (pure/bilingual), output path (optional), tone/style hint (optional)
 - **Complete 10-step workflow** (see below)
 - **Translation rules**: preserve tags, skip code blocks, handle special content
 - **Error handling**: guidance for common failure scenarios
@@ -41,10 +42,11 @@ epub-translator/
 ### references/translation-prompt.md
 
 Prompt template Claude follows for each translation batch:
+- **Global Style Profile** placeholder — injected from Step 5.5 (tone, genre, vocabulary level, style characteristics)
 - Target language specification
 - HTML tag preservation rules with examples
 - Non-translatable content list (code, URLs, proper nouns)
-- Quality requirements (natural, fluent, idiomatic)
+- Quality requirements (natural, fluent, idiomatic, consistent with the established style profile)
 
 ### references/epub-structure.md
 
@@ -80,6 +82,32 @@ Quick reference for ePub internals: container.xml → content.opf → XHTML file
   - Reading order (from `<spine>`)
   - TOC file(s): `toc.ncx` (ePub 2) and/or `toc.xhtml` (ePub 3)
   - Metadata: `dc:title`, `dc:language`, `dc:description`, `dc:creator`
+
+### Step 5.5: Establish Translation Style Profile
+
+This step determines the tone and style that will guide all subsequent translation. The style profile is saved to `_translated/style_profile.md` and included in every translation batch prompt.
+
+**Three sources of style information (in priority order):**
+
+1. **User-specified tone** (highest priority): If the user provides a `--tone` or style hint (e.g., "humorous, technical, and approachable"), use it directly as the primary style directive.
+
+2. **Metadata-driven inference**: Read `dc:description`, `dc:subject`, and `dc:title` from `content.opf`. Claude analyzes these to infer the book's genre and expected tone (e.g., "technical programming textbook with conversational style", "literary fiction with formal prose", "children's science book with playful tone").
+
+3. **First-chapter style anchor**: Read the first 2-3 paragraphs of the first content XHTML file in spine order. Claude analyzes the writing style: vocabulary complexity, sentence length patterns, use of humor/slang/jargon, formality level, narrative voice (first/second/third person).
+
+**Output**: Combine all available sources into a concise Style Profile (~3-5 sentences) and save to `_translated/style_profile.md`. Example:
+
+```
+Genre: Technical programming book
+Tone: Casual, conversational, and encouraging
+Voice: Second person ("you"), direct address to the reader
+Vocabulary: Technical terms kept precise, explanations use everyday language
+Style notes: Uses humor and real-world analogies. Short paragraphs. Rhetorical questions for engagement.
+```
+
+**Checkpoint**: If `_translated/style_profile.md` already exists (from a previous session), read and use it — do not regenerate. This ensures style consistency across sessions.
+
+**Integration**: The style profile is injected at the top of every translation batch prompt as "Global Book Context", ensuring Claude maintains consistent tone throughout the entire book.
 
 ### Step 6: Translate XHTML Files (Core Loop)
 
