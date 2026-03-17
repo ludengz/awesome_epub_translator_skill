@@ -49,6 +49,12 @@ Prompt template Claude follows for each translation batch:
 
 Quick reference for ePub internals: container.xml → content.opf → XHTML file chain, metadata fields, TOC formats.
 
+### rules/install.md
+
+- Requires `zip` and `unzip` commands available in the shell
+- On Windows: available via Git Bash (bundled with Git for Windows), or install via `choco install zip unzip`
+- On macOS/Linux: typically pre-installed
+
 ## Workflow (10 Steps)
 
 ### Step 1: Validate Input
@@ -60,8 +66,8 @@ Quick reference for ePub internals: container.xml → content.opf → XHTML file
 - This directory persists for resumability
 
 ### Step 3: Unzip ePub
-- `unzip -o <file>.epub -d <work_dir>/`
-- Verify extraction succeeded
+- `unzip -o -q <file>.epub -d <work_dir>/`
+- Verify extraction succeeded (check exit code and that `META-INF/container.xml` exists)
 
 ### Step 4: Locate content.opf
 - Parse `META-INF/container.xml` to find `content.opf` path
@@ -77,10 +83,10 @@ Quick reference for ePub internals: container.xml → content.opf → XHTML file
 ### Step 6: Translate XHTML Files (Core Loop)
 For each XHTML file in spine order:
 
-1. **Check checkpoint**: If `_translated/<filename>` exists, skip (print "Skipping already translated: ...")
-2. **Read** the XHTML file with the Read tool
+1. **Check checkpoint**: If `_translated/<relative_path>` exists in the work directory, skip (print "Skipping already translated: ..."). The `_translated/` directory mirrors the full relative path structure of the original ePub (e.g., `_translated/OEBPS/text/chapter1.xhtml`).
+2. **Read** the XHTML file with the Read tool. For very large files (>2000 lines), use offset/limit to read in segments.
 3. **Identify translatable blocks**: `<p>`, `<h1>`-`<h6>`, `<blockquote>`, `<li>`, `<td>`, `<th>`, `<figcaption>`, `<dt>`, `<dd>` within `<body>`
-4. **Batch blocks**: Group consecutive blocks into batches of ~2000-3000 characters, splitting at block element boundaries
+4. **Batch blocks**: Group consecutive top-level translatable blocks into batches of ~2000-3000 characters, splitting at block element boundaries. Nested structures (e.g., `<blockquote>` containing multiple `<p>`, or `<ol>` containing `<li>`) should be kept as a single unit unless the parent element alone exceeds 3000 characters. Include the last 2-3 translated paragraphs from the previous batch as context reference (marked as "previous context, do not re-translate") to maintain terminology consistency across batches.
 5. **Translate each batch**: Following the translation prompt template:
    - Preserve all HTML tags (`<em>`, `<strong>`, `<a href="...">`, `<span>`, etc.)
    - Translate `alt` attributes on `<img>` tags
@@ -88,7 +94,8 @@ For each XHTML file in spine order:
    - Skip empty paragraphs, purely numeric content, URLs
 6. **Reassemble**: Reconstruct the full XHTML with translated content
 7. **Update language attributes**: `<html lang="...">` and `xml:lang` to target language
-8. **Write checkpoint**: Save translated file to `_translated/<filename>`
+8. **Preserve file headers**: Keep XML declaration (`<?xml version="1.0" encoding="utf-8"?>`), DOCTYPE, and all namespace attributes on `<html>` tag unchanged
+9. **Write checkpoint**: Save translated file to `_translated/<relative_path>` (preserving the original directory structure)
 
 **Bilingual mode variation** (Step 6.5):
 - After translating each block, insert the translated block immediately after the original
@@ -96,8 +103,12 @@ For each XHTML file in spine order:
 
 ### Step 7: Translate TOC
 - `toc.ncx`: Translate `<navLabel><text>` content in each `<navPoint>`
-- `toc.xhtml`: Translate anchor text in `<nav>` elements
-- Save to `_translated/`
+- `toc.xhtml`: Translate based on `epub:type`:
+  - `epub:type="toc"`: Translate all anchor text in the navigation list
+  - `epub:type="landmarks"`: Translate landmark labels (e.g., "Cover" → "封面", "Table of Contents" → "目录")
+  - `epub:type="page-list"`: Do NOT translate (page numbers are language-independent)
+- Check checkpoint before translating (same `_translated/` mechanism as XHTML files)
+- Save to `_translated/` preserving relative path
 
 ### Step 8: Update Metadata
 - In `content.opf`:
@@ -107,11 +118,16 @@ For each XHTML file in spine order:
 - Save updated `content.opf` to `_translated/`
 
 ### Step 9: Repackage ePub
-- Copy all non-translated files (CSS, images, fonts, etc.) to output staging area
-- Overlay translated files from `_translated/`
+- Create an output staging directory by copying the entire extracted ePub structure
+- Overlay translated files from `_translated/` onto the staging copy, specifically:
+  - All translated XHTML content files
+  - Translated TOC file(s) (toc.ncx, toc.xhtml)
+  - Updated content.opf (with new metadata)
+- All other files (CSS, images, fonts, META-INF/container.xml, etc.) remain unchanged from the original
 - Package as ZIP with correct ePub structure:
+  - `cd` into staging directory
   - `mimetype` first, uncompressed: `zip -0 -X output.epub mimetype`
-  - Everything else compressed: `zip -r output.epub META-INF/ OEBPS/ -x mimetype`
+  - Everything else: `zip -r output.epub * -x mimetype` (dynamically includes whatever directories exist — not hardcoded to `OEBPS/`)
 - Output filename: `<original_name>_<target_lang>.epub` (or user-specified path)
 
 ### Step 10: Cleanup
@@ -160,8 +176,9 @@ The translation prompt explicitly instructs Claude to:
 | File not found | Report error, stop |
 | Not an .epub file | Report error, stop |
 | Unzip fails (corrupted) | Report error, stop |
-| DRM-encrypted content | Detect encrypted files, warn user, stop |
-| Fixed-layout ePub | Warn user that layout may break, continue |
+| DRM-encrypted content | Check for `META-INF/encryption.xml`; if it exists and references XHTML content files, warn user and stop |
+| Fixed-layout ePub | Check `content.opf` for `<meta property="rendition:layout">pre-paginated</meta>` or `<meta name="fixed-layout" content="true"/>`; warn user layout may break, continue |
+| Non-UTF-8 encoding | Check XML declaration for encoding; warn if not UTF-8 |
 | Empty paragraph / no text | Skip silently |
 | Super-long paragraph (>3000 chars) | Treat as single batch |
 | Translated file already exists | Skip (resumability) |
@@ -175,6 +192,10 @@ The translation prompt explicitly instructs Claude to:
 - Fixed-layout ePub translations may have layout issues
 - SVG text elements are not translated in this version
 - No parallel processing (sequential chapter-by-chapter)
+- `<ruby>`/`<rt>` annotations: preserved as-is; not added or removed during translation
+- Table layout may shift when translated text length changes significantly
+- Resumability checks file existence only; if the source ePub changes between runs, delete `_translated/` to force re-translation
+- Bilingual mode adds `class="translated"` to inserted elements but does not inject CSS — users may add custom styles if desired
 
 ## Test Plan
 
