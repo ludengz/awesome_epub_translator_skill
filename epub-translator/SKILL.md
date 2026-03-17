@@ -115,3 +115,79 @@ Style notes: [2-3 specific observations about the writing style]
 ```
 
 This profile will be injected into every translation batch prompt. Show it to the user and ask: "Does this style profile look right? Adjust if needed, or confirm to proceed."
+
+### Step 6: Translate XHTML Files (Core Loop)
+
+**Session management:** Track how many XHTML files you translate in this session. After completing **3 files**, pause and report:
+
+> "Translated 3/N chapters so far. The checkpoint is saved. You can:
+> 1. Continue in this session
+> 2. Start a new conversation — just invoke this skill again with the same ePub and I'll pick up where I left off."
+
+This prevents context window exhaustion on large books.
+
+**For each XHTML file in spine order:**
+
+#### 6.1: Check Checkpoint
+- If `<work_dir>/_translated/<relative_path>` exists, print "Skipping (already translated): <filename>" and move to the next file
+- The `_translated/` directory mirrors the full ePub directory structure (e.g., `_translated/OEBPS/Text/chapter_01.xhtml`)
+
+#### 6.2: Read the File
+- Use the Read tool to read the XHTML file from the work directory
+- For files >2000 lines, use offset/limit to read in segments
+- Note the complete file structure: XML declaration, `<head>`, `<body>`
+
+#### 6.3: Identify Translatable Content
+Within `<body>`, identify all translatable block elements:
+- `<p>`, `<h1>`–`<h6>`, `<blockquote>`, `<li>`, `<td>`, `<th>`, `<figcaption>`, `<dt>`, `<dd>`
+
+Skip these entirely:
+- `<pre>` and `<code>` blocks (source code)
+- Empty elements or elements containing only whitespace
+- Elements containing only numeric/symbolic content
+- Elements containing only URLs
+
+#### 6.4: Batch and Translate
+
+Group translatable blocks into batches by **natural semantic boundaries** (sections, heading groups, logical paragraph clusters). Guidelines:
+- Aim for ~2000-3000 characters per batch, but this is a guideline, not a hard limit
+- **Never split a parent element across batches** (e.g., keep an entire `<blockquote>` or `<table>` together)
+- Keep nested structures as single units (e.g., `<ol>` with all its `<li>` children)
+- If a single element exceeds 3000 characters, treat it as its own batch
+
+**For each batch:**
+
+1. Read `references/translation-prompt.md` to remember the translation rules
+2. Construct the translation prompt:
+   - Insert the style profile from `_translated/style_profile.md` into the `{STYLE_PROFILE}` placeholder
+   - Set `{TARGET_LANGUAGE}` and `{SOURCE_LANGUAGE}`
+   - If this is not the first batch, include the last 2-3 translated paragraphs from the previous batch as context:
+     ```
+     [PREVIOUS CONTEXT - do not re-translate]
+     <p>前一段的翻译内容...</p>
+     <p>前二段的翻译内容...</p>
+     [END PREVIOUS CONTEXT]
+
+     [TRANSLATE THE FOLLOWING]
+     <p>New content to translate...</p>
+     ```
+3. Translate the batch, producing the target-language HTML
+4. For **bilingual mode**: keep the original blocks, and insert translated blocks after each original:
+   - Copy the original block element
+   - Add `class="translated"` to the translated copy
+   - Place the translated copy immediately after the original
+
+#### 6.5: Reassemble the XHTML File
+
+Reconstruct the complete XHTML file:
+1. Keep the XML declaration exactly as-is (e.g., `<?xml version="1.0" encoding="utf-8"?>`)
+2. Keep the DOCTYPE exactly as-is (if present)
+3. Update `<html>` tag: change `lang="xx"` and `xml:lang="xx"` to the target language code
+4. Keep `<head>` section entirely unchanged (title, CSS links, meta tags)
+5. Replace `<body>` content with the translated content (or bilingual interleaved content)
+
+#### 6.6: Write Checkpoint
+
+1. Create the necessary subdirectories: `mkdir -p "<work_dir>/_translated/<subdirs>/"`
+2. Write the translated XHTML to `<work_dir>/_translated/<relative_path>` using the Write tool
+3. Report: "Translated: <filename> (X/N)"
