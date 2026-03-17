@@ -11,7 +11,8 @@ A Claude Code skill that translates ePub files from one language to another with
 | Output mode | Both pure-translation and bilingual | Bilingual for learners, pure for readers. User selects via parameter. |
 | Translation engine | Claude itself (no external API) | Zero config, Claude is already a high-quality translator. No API key needed. |
 | Inline HTML handling | Preserve tags in-context | Claude translates text with HTML tags intact, guided by prompt rules. |
-| Processing granularity | Multi-paragraph batches (~2000-3000 chars) | Balances context quality with manageable chunk size. |
+| Processing granularity | Multi-paragraph batches by semantic boundaries (~2000-3000 chars guideline) | Prioritizes complete HTML structures over strict char counts. |
+| Session management | Max 3 XHTML files per session, then pause | Prevents context window exhaustion on large books; checkpoint enables cross-session continuation. |
 | Resumability | Chapter-level file-based checkpoints | Translated XHTML files saved to `_translated/` dir; already-done files skipped on re-run. |
 | ePub processing tool | Pure shell (zip/unzip) | Zero external dependencies. Claude reads/writes files directly. |
 | Metadata translation | Translate everything except author names | Book title, TOC entries, chapter headings, dc:language — full localization. Author names (dc:creator) left as-is. |
@@ -35,7 +36,7 @@ epub-translator/
 - **Complete 10-step workflow** (see below)
 - **Translation rules**: preserve tags, skip code blocks, handle special content
 - **Error handling**: guidance for common failure scenarios
-- **Prohibitions**: don't modify CSS, don't remove images, don't alter file structure
+- **Prohibitions**: don't remove images, don't alter file structure, don't modify existing CSS rules (only append bilingual styles if needed)
 
 ### references/translation-prompt.md
 
@@ -81,12 +82,15 @@ Quick reference for ePub internals: container.xml → content.opf → XHTML file
   - Metadata: `dc:title`, `dc:language`, `dc:description`, `dc:creator`
 
 ### Step 6: Translate XHTML Files (Core Loop)
+
+**Session management**: To avoid context window exhaustion, translate at most **3 XHTML files per session**. After completing 3 files, pause and ask the user: "Translated 3/N chapters. Continue in this session, or start a new conversation to continue? (The `_translated/` checkpoint will pick up where we left off.)" This prevents token overflow on large books.
+
 For each XHTML file in spine order:
 
 1. **Check checkpoint**: If `_translated/<relative_path>` exists in the work directory, skip (print "Skipping already translated: ..."). The `_translated/` directory mirrors the full relative path structure of the original ePub (e.g., `_translated/OEBPS/text/chapter1.xhtml`).
 2. **Read** the XHTML file with the Read tool. For very large files (>2000 lines), use offset/limit to read in segments.
 3. **Identify translatable blocks**: `<p>`, `<h1>`-`<h6>`, `<blockquote>`, `<li>`, `<td>`, `<th>`, `<figcaption>`, `<dt>`, `<dd>` within `<body>`
-4. **Batch blocks**: Group consecutive top-level translatable blocks into batches of ~2000-3000 characters, splitting at block element boundaries. Nested structures (e.g., `<blockquote>` containing multiple `<p>`, or `<ol>` containing `<li>`) should be kept as a single unit unless the parent element alone exceeds 3000 characters. Include the last 2-3 translated paragraphs from the previous batch as context reference (marked as "previous context, do not re-translate") to maintain terminology consistency across batches.
+4. **Batch blocks**: Group translatable content into batches based on **natural semantic boundaries** (sections, headings, logical paragraph groups) rather than strict character counts. Aim for roughly 2000-3000 characters per batch as a guideline, but prioritize keeping complete HTML structures intact — never split a parent element across batches. Nested structures (e.g., `<blockquote>` containing multiple `<p>`, or `<ol>` containing `<li>`) should be kept as a single unit. Include the last 2-3 translated paragraphs from the previous batch as context reference (marked as "previous context, do not re-translate") to maintain terminology consistency across batches.
 5. **Translate each batch**: Following the translation prompt template:
    - Preserve all HTML tags (`<em>`, `<strong>`, `<a href="...">`, `<span>`, etc.)
    - Translate `alt` attributes on `<img>` tags
@@ -99,9 +103,15 @@ For each XHTML file in spine order:
 
 **Bilingual mode variation** (Step 6.5):
 - After translating each block, insert the translated block immediately after the original
-- Add `class="translated"` to translated elements for optional CSS styling
+- Add `class="translated"` to translated elements for CSS styling
+- **Auto-inject bilingual CSS**: In Step 9, if bilingual mode is active and the ePub has a main CSS file (referenced in `content.opf` manifest), append the following to the end of that CSS file:
+  ```css
+  .translated { color: #555555; font-size: 0.95em; margin-top: 0.2em; }
+  ```
+  If no CSS file exists, create a minimal `bilingual.css`, add it to the manifest, and reference it in all XHTML files.
 
 ### Step 7: Translate TOC
+- **If both `toc.ncx` and `toc.xhtml` exist**, translate them in a single batch to guarantee identical translations for the same chapter titles across both files.
 - `toc.ncx`: Translate `<navLabel><text>` content in each `<navPoint>`
 - `toc.xhtml`: Translate based on `epub:type`:
   - `epub:type="toc"`: Translate all anchor text in the navigation list
@@ -196,7 +206,8 @@ The translation prompt explicitly instructs Claude to:
 - `<ruby>`/`<rt>` annotations: preserved as-is; not added or removed during translation
 - Table layout may shift when translated text length changes significantly
 - Resumability checks file existence only; if the source ePub changes between runs, delete `_translated/` to force re-translation
-- Bilingual mode adds `class="translated"` to inserted elements but does not inject CSS — users may add custom styles if desired
+- Bilingual mode auto-injects minimal CSS (`.translated { color: #555; font-size: 0.95em; }`); users may customize further
+- Large books require multiple conversation sessions due to context window limits (3 chapters per session, checkpoint-based continuation)
 
 ## Test Plan
 
