@@ -28,9 +28,10 @@ If the user doesn't specify all required parameters, ask for them before proceed
 
 ## Prerequisites
 
-- `zip` and `unzip` must be available in the shell (see `rules/install.md`)
-- Verify with: `which zip && which unzip` (or `where zip` on Windows cmd)
-- If not found, guide the user to install per `rules/install.md`
+- `unzip` must be available in the shell
+- For repackaging: either `zip` command OR Python 3 (used as fallback)
+- Verify with: `which unzip` and `which zip || python --version`
+- If neither zip nor Python is found, guide the user to install per `rules/install.md`
 
 ## Workflow
 
@@ -270,19 +271,36 @@ If bilingual mode is active:
 
 #### 9.5: Package as ePub ZIP
 
+Determine the output path first:
+- Default: `<source_dir>/<original_name>_<target_lang>.epub`
+- Or user-specified path
+
+**Option A: If `zip` command is available:**
 ```bash
 cd "$staging_dir"
-
-# Determine output path
-output_path="<user_specified_or_default>"
-# Default: <source_dir>/<original_name>_<target_lang>.epub
-
-# Step 1: mimetype MUST be first and uncompressed
 zip -0 -X "$output_path" mimetype
-
-# Step 2: Add everything else (compressed)
 zip -r "$output_path" * -x mimetype
 ```
+
+**Option B: If `zip` is not available (common on Windows), use Python:**
+```bash
+python -c "
+import zipfile, os
+os.chdir('$staging_dir')
+with zipfile.ZipFile('$output_path', 'w') as zf:
+    zf.write('mimetype', 'mimetype', compress_type=zipfile.ZIP_STORED)
+    for root, dirs, files in os.walk('.'):
+        dirs.sort()
+        for f in sorted(files):
+            p = os.path.join(root, f)
+            arcname = os.path.relpath(p, '.')
+            if arcname != 'mimetype':
+                zf.write(p, arcname, compress_type=zipfile.ZIP_DEFLATED)
+print('ePub packaged successfully')
+"
+```
+
+Check which is available with `which zip` — if not found, use the Python fallback.
 
 #### 9.6: Verify Output
 ```bash

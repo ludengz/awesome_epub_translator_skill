@@ -1,16 +1,16 @@
 # Installation Requirements
 
-This skill requires `zip` and `unzip` commands available in your shell.
+This skill requires `unzip` for extracting ePub files, and either `zip` or Python 3 for repackaging.
 
 ## Platform-specific instructions
 
 ### Windows
-- **Git Bash** (bundled with Git for Windows): `zip` and `unzip` are included
-- **Chocolatey**: `choco install zip unzip`
-- **Manual**: Download from GnuWin32 and add to PATH
+- **Git Bash** (bundled with Git for Windows): `unzip` is included; `zip` may NOT be included
+- **Python fallback**: If `zip` is not available, Python 3 is used automatically for repackaging (Python is commonly pre-installed or available via `python` command)
+- **Chocolatey** (optional): `choco install zip unzip`
 
 ### macOS
-- Pre-installed on all macOS versions
+- `zip` and `unzip` are pre-installed on all macOS versions
 
 ### Linux
 - Usually pre-installed. If not:
@@ -22,8 +22,8 @@ This skill requires `zip` and `unzip` commands available in your shell.
 
 Run these commands to verify:
 ```
-zip --version
 unzip --version
+zip --version || python --version
 ```
 
-Both should print version info without errors.
+`unzip` is required. For repackaging, either `zip` or Python 3 must be available.
