@@ -23,8 +23,12 @@ The user provides these when invoking the skill:
 | Output mode | No (default: pure) | `pure` = translated only, `bilingual` = original + translated | `bilingual` |
 | Output path | No (default: auto) | Custom output file path | `/path/to/output.epub` |
 | Tone/style | No (default: auto-detect) | Style hint for translation | `"formal and academic"` |
+| Pause between rounds | No (default: ask) | Whether to pause after each parallel round for confirmation | `yes`, `no` |
 
 If the user doesn't specify all required parameters, ask for them before proceeding.
+
+If `Pause between rounds` is not specified, ask the user after confirming the style profile (end of Step 5.5):
+> "This book has N chapters to translate. Would you like me to pause after each round for confirmation, or translate everything in one go? (Pausing lets you check progress; continuing is faster for large books.)"
 
 ## Prerequisites
 
@@ -117,29 +121,46 @@ Style notes: [2-3 specific observations about the writing style]
 
 This profile will be injected into every translation batch prompt. Show it to the user and ask: "Does this style profile look right? Adjust if needed, or confirm to proceed."
 
-### Step 6: Translate XHTML Files (Core Loop)
+### Step 6: Translate XHTML Files (Parallel Subagents)
 
-**Session management:** Track how many XHTML files you translate in this session. After completing **3 files**, pause and report:
+Translation uses up to 3 parallel subagents, each handling a subset of files. This ~3x throughput while keeping each subagent's context window manageable.
 
-> "Translated 3/N chapters so far. The checkpoint is saved. You can:
-> 1. Continue in this session
-> 2. Start a new conversation — just invoke this skill again with the same ePub and I'll pick up where I left off."
+#### 6.0: Prepare File Assignments
 
-This prevents context window exhaustion on large books.
+1. Collect all untranslated XHTML files — those in spine order whose checkpoint (`<work_dir>/_translated/<relative_path>`) does NOT yet exist. Print "Skipping (already translated): <filename>" for each skipped file.
+2. If **0 files** remain: skip to Step 7.
+3. If **1 file** remains: translate it directly in the main agent (use the translation instructions in 6.1.1 below). No subagent overhead needed.
+4. If **2+ files** remain: divide them into groups using **round-robin by spine order**:
+   - File 1 → Agent A, File 2 → Agent B, File 3 → Agent C, File 4 → Agent A, ...
+   - If only 2 files, use 2 subagents (no empty Agent C).
+5. Read `_translated/style_profile.md` content and `references/translation-prompt.md` content into variables — these will be inlined in each subagent's prompt.
 
-**For each XHTML file in spine order:**
+#### 6.1: Dispatch Subagents
 
-#### 6.1: Check Checkpoint
-- If `<work_dir>/_translated/<relative_path>` exists, print "Skipping (already translated): <filename>" and move to the next file
-- The `_translated/` directory mirrors the full ePub directory structure (e.g., `_translated/OEBPS/Text/chapter_01.xhtml`)
+Launch up to 3 Agent subagents **in a single message** (this is critical — all Agent tool calls must be in one response for true parallel execution).
 
-#### 6.2: Read the File
+Each subagent receives a **self-contained prompt** containing:
+
+1. **Role**: "You are a translation subagent. Translate the assigned XHTML files following the instructions below exactly."
+2. **Style profile** (inline content, NOT a file path):
+   ```
+   [STYLE PROFILE]
+   <paste full content of style_profile.md>
+   [END STYLE PROFILE]
+   ```
+3. **Translation prompt template** (inline content of `references/translation-prompt.md`)
+4. **Work directory path**: `<work_dir>`
+5. **Target language**, **source language**, and **output mode** (pure or bilingual)
+6. **Assigned files list**: each entry includes the relative path and spine order index (e.g., "File 3/15: OEBPS/Text/chapter_03.xhtml")
+7. **Complete translation instructions** (Steps 6.1.1–6.1.5 below)
+
+##### 6.1.1: Read the File
 - Use the Read tool to read the XHTML file from the work directory
 - For files >2000 lines, use offset/limit to read in segments
 - Note the complete file structure: XML declaration, `<head>`, `<body>`
 - **Encoding check**: If the XML declaration specifies an encoding other than `utf-8` (e.g., `encoding="iso-8859-1"`), warn the user and proceed with caution
 
-#### 6.3: Identify Translatable Content
+##### 6.1.2: Identify Translatable Content
 Within `<body>`, identify all translatable block elements:
 - `<p>`, `<h1>`–`<h6>`, `<blockquote>`, `<li>`, `<td>`, `<th>`, `<figcaption>`, `<dt>`, `<dd>`
 
@@ -149,7 +170,7 @@ Skip these entirely:
 - Elements containing only numeric/symbolic content
 - Elements containing only URLs
 
-#### 6.4: Batch and Translate
+##### 6.1.3: Batch and Translate
 
 Group translatable blocks into batches by **natural semantic boundaries** (sections, heading groups, logical paragraph clusters). Guidelines:
 - Aim for ~2000-3000 characters per batch, but this is a guideline, not a hard limit
@@ -159,9 +180,9 @@ Group translatable blocks into batches by **natural semantic boundaries** (secti
 
 **For each batch:**
 
-1. Read `references/translation-prompt.md` to remember the translation rules
+1. Use the inlined translation prompt template to remember the translation rules
 2. Construct the translation prompt:
-   - Insert the style profile from `_translated/style_profile.md` into the `{STYLE_PROFILE}` placeholder
+   - Insert the inlined style profile into the `{STYLE_PROFILE}` placeholder
    - Set `{TARGET_LANGUAGE}` and `{SOURCE_LANGUAGE}`
    - If this is not the first batch, include the last 2-3 translated paragraphs from the previous batch as context:
      ```
@@ -179,7 +200,7 @@ Group translatable blocks into batches by **natural semantic boundaries** (secti
    - Add `class="translated"` to the translated copy
    - Place the translated copy immediately after the original
 
-#### 6.5: Reassemble the XHTML File
+##### 6.1.4: Reassemble the XHTML File
 
 Reconstruct the complete XHTML file:
 1. Keep the XML declaration exactly as-is (e.g., `<?xml version="1.0" encoding="utf-8"?>`)
@@ -188,11 +209,32 @@ Reconstruct the complete XHTML file:
 4. Keep `<head>` section entirely unchanged (title, CSS links, meta tags)
 5. Replace `<body>` content with the translated content (or bilingual interleaved content)
 
-#### 6.6: Write Checkpoint
+##### 6.1.5: Write Checkpoint
 
 1. Create the necessary subdirectories: `mkdir -p "<work_dir>/_translated/<subdirs>/"`
 2. Write the translated XHTML to `<work_dir>/_translated/<relative_path>` using the Write tool
 3. Report: "Translated: <filename> (X/N)"
+
+Each subagent translates its assigned files **sequentially** within its own context, maintaining batch-to-batch "previous context" continuity across files.
+
+#### 6.2: Collect Results
+
+After all subagents complete:
+
+1. Verify checkpoints exist for all assigned files: `ls <work_dir>/_translated/<relative_path>` for each file
+2. If any checkpoint is missing, report which files failed and ask the user whether to retry
+3. Report overall progress: "Translated X/N chapters (using K parallel subagents)."
+
+**Session management:** If more files remain after this round:
+
+- **If the user chose to pause between rounds**, stop and report:
+  > "Translated X/N chapters in this round (using K parallel subagents). Checkpoint saved. You can:
+  > 1. Continue in this session (will dispatch another round for remaining files)
+  > 2. Start a new conversation — just invoke this skill again with the same ePub and I'll pick up where I left off."
+
+- **If the user chose no pausing**, immediately loop back to Step 6.0 to dispatch the next round of subagents for remaining files.
+
+If all files are translated, proceed directly to Step 7 without pausing.
 
 ### Step 7: Translate TOC
 
@@ -359,13 +401,14 @@ Do NOT:
 ## Limitations
 
 Tell the user upfront:
-- Large books (>50 chapters) require multiple conversation sessions (3 chapters per session, checkpoint-based)
+- Large books (>50 chapters) require multiple conversation sessions (up to 3 parallel subagents per round, checkpoint-based)
 - Inline tag preservation is best-effort; complex nesting may occasionally break
 - Text embedded in images is not translated
 - Fixed-layout ePub translations may have layout issues
 - SVG text elements are not translated
 - `<ruby>`/`<rt>` annotations are preserved as-is
 - Table column widths may shift when translated text length differs significantly
-- No parallel processing — chapters are translated sequentially
+- Uses up to 3 parallel subagents for translation — each subagent handles a subset of chapters sequentially
+- Subagent dispatch has overhead; for books with ≤1 remaining chapters, translation is done directly without subagents
 - Resumability checks file existence only; if the source ePub changes between runs, delete `_translated/` to force re-translation
 - Bilingual mode auto-injects minimal CSS (`.translated { color: #555; font-size: 0.95em; }`); users may customize further
