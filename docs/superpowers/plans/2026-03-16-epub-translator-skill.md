@@ -667,7 +667,8 @@ Save both to `_translated/` preserving relative paths.
 3. **Bilingual mode only:** If bilingual CSS needs to be added:
    - If no CSS file was found in Step 5: add a new manifest item for `bilingual.css`
    - This is handled in Step 9
-4. Save the modified content.opf to `<work_dir>/_translated/<content.opf relative path>`
+4. Ensure the target directory exists: `mkdir -p "<work_dir>/_translated/<content.opf parent dir>/"`
+5. Save the modified content.opf to `<work_dir>/_translated/<content.opf relative path>`
 
 ### Step 9: Repackage ePub
 
@@ -968,3 +969,11 @@ Read one of the translated XHTML files and verify:
 - [ ] **Step 5: Document any issues found**
 
 If any issues are discovered, fix them in the skill files and commit.
+
+- [ ] **Step 6: Clean up test artifacts**
+
+Remove the work directory created during testing (in the Downloads folder):
+```bash
+rm -rf "<source_dir>/<filename>_translation_work"
+```
+Keep the output `*_zh.epub` for manual review.
