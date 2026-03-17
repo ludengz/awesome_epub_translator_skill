@@ -306,3 +306,45 @@ If cleanup requested:
 ```bash
 rm -rf "<work_dir>"
 ```
+
+## Error Handling
+
+| Scenario | How to Detect | Action |
+|----------|--------------|--------|
+| File not found | `ls` fails | Report "File not found: <path>" and STOP |
+| Not .epub | Check extension | Report "Not an ePub file" and STOP |
+| Unzip fails | Non-zero exit code | Report "Failed to extract ePub (file may be corrupted)" and STOP |
+| DRM protected | `META-INF/encryption.xml` contains `<EncryptedData>` referencing XHTML files | Report "ePub is DRM-protected" and STOP |
+| Fixed-layout | `rendition:layout` = `pre-paginated` in content.opf | WARN "Fixed-layout ePub detected — translation may affect layout" and CONTINUE |
+| Non-UTF-8 | XML declaration has `encoding` other than `utf-8` | WARN "Non-UTF-8 encoding detected" and CONTINUE with caution |
+| Empty content file | XHTML body has no translatable blocks | Skip silently, write unchanged to checkpoint |
+| Super-long paragraph | Single element >3000 chars | Treat as its own batch |
+| Translated file exists | `_translated/<path>` already present | Skip (resumability) |
+| Output file is 0 bytes | `ls -la` shows 0 size | Report packaging error and STOP |
+| zip/unzip not found | `which zip` fails | Direct user to `rules/install.md` and STOP |
+
+## Prohibitions
+
+Do NOT:
+- Remove or modify images
+- Alter the ePub file/directory structure
+- Modify existing CSS rules (only append bilingual styles if needed)
+- Translate content inside `<code>` or `<pre>` tags
+- Translate `href`, `src`, `id`, `class`, or other HTML attribute values
+- Translate author names
+- Add files not required for the translation (no README, no logs inside the ePub)
+- Modify spine order or manifest entries (except adding bilingual CSS if needed)
+
+## Limitations
+
+Tell the user upfront:
+- Large books (>50 chapters) require multiple conversation sessions (3 chapters per session, checkpoint-based)
+- Inline tag preservation is best-effort; complex nesting may occasionally break
+- Text embedded in images is not translated
+- Fixed-layout ePub translations may have layout issues
+- SVG text elements are not translated
+- `<ruby>`/`<rt>` annotations are preserved as-is
+- Table column widths may shift when translated text length differs significantly
+- No parallel processing — chapters are translated sequentially
+- Resumability checks file existence only; if the source ePub changes between runs, delete `_translated/` to force re-translation
+- Bilingual mode auto-injects minimal CSS (`.translated { color: #555; font-size: 0.95em; }`); users may customize further
