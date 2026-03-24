@@ -11,7 +11,7 @@ The skill is installed as a Superpowers plugin and triggered when users ask to t
 ## Architecture
 
 ```
-awesome_epub_translator_skill/     # Skill package directory
+awesome-epub-translator-skill/     # Skill package directory
 ├── SKILL.md                       # Main skill definition: frontmatter, 10-step workflow, error handling
 ├── references/
 │   ├── translation-prompt.md      # Translation prompt template with {STYLE_PROFILE}, {TARGET_LANGUAGE} placeholders

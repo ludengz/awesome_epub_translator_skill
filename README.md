@@ -23,14 +23,14 @@ A [Claude Code](https://claude.ai/code) skill that translates ePub files between
 ### Install the skill
 
 ```bash
-claude skill add /path/to/awesome_epub_translator_skill
+claude skill add /path/to/awesome-epub-translator-skill
 ```
 
 Or clone this repo and add it:
 
 ```bash
-git clone https://github.com/<your-username>/awesome_epub_translator_skill.git
-claude skill add ./awesome_epub_translator_skill/awesome_epub_translator_skill
+git clone https://github.com/<your-username>/awesome-epub-translator-skill.git
+claude skill add ./awesome-epub-translator-skill/awesome-epub-translator-skill
 ```
 
 ### Verify prerequisites
@@ -40,7 +40,7 @@ unzip --version
 zip --version || python --version
 ```
 
-See [rules/install.md](awesome_epub_translator_skill/rules/install.md) for platform-specific instructions.
+See [rules/install.md](awesome-epub-translator-skill/rules/install.md) for platform-specific instructions.
 
 ## Usage
 
@@ -85,7 +85,7 @@ Translated files are checkpointed to a `_translated/` directory. If a session en
 ## Project Structure
 
 ```
-awesome_epub_translator_skill/     # Skill package
+awesome-epub-translator-skill/     # Skill package
 ├── SKILL.md                       # Main skill definition (10-step workflow)
 ├── references/
 │   ├── translation-prompt.md      # Translation prompt template

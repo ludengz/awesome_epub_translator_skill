@@ -129,11 +129,19 @@ Translation uses up to 3 parallel subagents, each handling a subset of files. Th
 
 1. Collect all untranslated XHTML files — those in spine order whose checkpoint (`<work_dir>/_translated/<relative_path>`) does NOT yet exist. Print "Skipping (already translated): <filename>" for each skipped file.
 2. If **0 files** remain: skip to Step 7.
-3. If **1 file** remains: translate it directly in the main agent (use the translation instructions in 6.1.1 below). No subagent overhead needed.
-4. If **2+ files** remain: divide them into groups using **round-robin by spine order**:
-   - File 1 → Agent A, File 2 → Agent B, File 3 → Agent C, File 4 → Agent A, ...
-   - If only 2 files, use 2 subagents (no empty Agent C).
-5. Read `_translated/style_profile.md` content and `references/translation-prompt.md` content into variables — these will be inlined in each subagent's prompt.
+3. **Measure file sizes**: Run `wc -c` (or `ls -la`) on each remaining file. Classify:
+   - **Small**: <30 KB
+   - **Medium**: 30–80 KB
+   - **Large**: >80 KB
+   Report a size summary table to the user (e.g., "3 small, 5 medium, 2 large files").
+4. If **1 file** remains: translate it directly in the main agent (use the translation instructions in 6.1.1 below). No subagent overhead needed.
+5. If **2+ files** remain: assign files to up to 3 agents using **size-aware bin packing** instead of naive round-robin. Each agent has a budget:
+   - **Max 3 files** per agent (hard cap — large files are expensive to translate and consume substantial context)
+   - **Max ~200 KB total** per agent (sum of assigned file sizes)
+   - Assignment algorithm: sort files by size descending, then greedily assign each file to the agent with the smallest current total. This ensures large files are spread across agents rather than clustered.
+   - If only 2 files, use 2 subagents.
+   - If files remain after all 3 agents are at capacity, they will be handled in the next round (loop back via 6.2).
+6. Read `_translated/style_profile.md` content and `references/translation-prompt.md` content into variables — these will be inlined in each subagent's prompt.
 
 #### 6.1: Dispatch Subagents
 
@@ -151,8 +159,21 @@ Each subagent receives a **self-contained prompt** containing:
 3. **Translation prompt template** (inline content of `references/translation-prompt.md`)
 4. **Work directory path**: `<work_dir>`
 5. **Target language**, **source language**, and **output mode** (pure or bilingual)
-6. **Assigned files list**: each entry includes the relative path and spine order index (e.g., "File 3/15: OEBPS/Text/chapter_03.xhtml")
+6. **Assigned files list**: each entry includes the relative path, spine order index, and file size (e.g., "File 3/15: OEBPS/Text/chapter_03.xhtml (85 KB)")
 7. **Complete translation instructions** (Steps 6.1.1–6.1.5 below)
+8. **Critical strategy directive** (include this verbatim in every subagent prompt):
+   ```
+   TRANSLATION STRATEGY — READ THIS FIRST:
+   For each file, you MUST follow this exact approach:
+   1. Read the entire XHTML file using the Read tool
+   2. Translate all translatable content in memory
+   3. Write the COMPLETE translated file using the Write tool in ONE operation
+
+   Do NOT use the Edit tool for translation. The Edit/find-replace approach is
+   too slow for large files, will exhaust your context window, and frequently
+   fails when it cannot find unique string matches. The Write-complete-file
+   approach is faster, more reliable, and produces consistent results.
+   ```
 
 ##### 6.1.1: Read the File
 - Use the Read tool to read the XHTML file from the work directory
@@ -200,32 +221,39 @@ Group translatable blocks into batches by **natural semantic boundaries** (secti
    - Add `class="translated"` to the translated copy
    - Place the translated copy immediately after the original
 
-##### 6.1.4: Reassemble the XHTML File
+##### 6.1.4: Reassemble and Write the Complete XHTML File
 
-Reconstruct the complete XHTML file:
+Reconstruct the complete XHTML file in memory, then write it in one shot:
 1. Keep the XML declaration exactly as-is (e.g., `<?xml version="1.0" encoding="utf-8"?>`)
 2. Keep the DOCTYPE exactly as-is (if present)
 3. Update `<html>` tag: change `lang="xx"` and `xml:lang="xx"` to the target language code
 4. Keep `<head>` section entirely unchanged (title, CSS links, meta tags)
 5. Replace `<body>` content with the translated content (or bilingual interleaved content)
+6. Create the necessary subdirectories: `mkdir -p "<work_dir>/_translated/<subdirs>/"`
+7. **Write the entire file** to `<work_dir>/_translated/<relative_path>` using the **Write tool** — this must be the complete file from XML declaration to closing `</html>` tag, in a single Write call
+8. Report: "Translated: <filename> (X/N)"
 
-##### 6.1.5: Write Checkpoint
+Each subagent translates its assigned files **sequentially** within its own context, maintaining batch-to-batch "previous context" continuity across files. Steps 6.1.1 through 6.1.4 are repeated for each assigned file.
 
-1. Create the necessary subdirectories: `mkdir -p "<work_dir>/_translated/<subdirs>/"`
-2. Write the translated XHTML to `<work_dir>/_translated/<relative_path>` using the Write tool
-3. Report: "Translated: <filename> (X/N)"
-
-Each subagent translates its assigned files **sequentially** within its own context, maintaining batch-to-batch "previous context" continuity across files.
-
-#### 6.2: Collect Results
+#### 6.2: Collect and Verify Results
 
 After all subagents complete:
 
-1. Verify checkpoints exist for all assigned files: `ls <work_dir>/_translated/<relative_path>` for each file
-2. If any checkpoint is missing, report which files failed and ask the user whether to retry
-3. Report overall progress: "Translated X/N chapters (using K parallel subagents)."
+1. **Check checkpoint existence**: `ls <work_dir>/_translated/<relative_path>` for each assigned file. If missing, mark as failed.
 
-**Session management:** If more files remain after this round:
+2. **Verify translation completeness** for each checkpoint that exists:
+   - Read the first ~200 lines and last ~100 lines of the translated file
+   - Check for signs of incomplete translation:
+     - Large blocks of source-language text remaining in `<p>` elements (a few untranslated proper nouns or code terms are fine — look for entire paragraphs still in the source language)
+     - File is significantly smaller than the original (may indicate truncation)
+     - File ends abruptly without closing `</html>` tag
+   - If a file appears incompletely translated, **delete the checkpoint** (`rm`) so it will be retried in the next round. Report: "Incomplete translation detected: <filename> — will retry in next round."
+
+3. Report results:
+   - "Translated X/N chapters (using K parallel subagents)."
+   - If any files were incomplete: "Y files had incomplete translations and will be retried."
+
+**Session management:** If more files remain after this round (including retries from incomplete translations):
 
 - **If the user chose to pause between rounds**, stop and report:
   > "Translated X/N chapters in this round (using K parallel subagents). Checkpoint saved. You can:
@@ -234,7 +262,7 @@ After all subagents complete:
 
 - **If the user chose no pausing**, immediately loop back to Step 6.0 to dispatch the next round of subagents for remaining files.
 
-If all files are translated, proceed directly to Step 7 without pausing.
+If all files are translated and verified, proceed directly to Step 7 without pausing.
 
 ### Step 7: Translate TOC
 
@@ -281,22 +309,38 @@ mkdir -p "$staging_dir"
 ```
 
 #### 9.2: Copy Original Structure (excluding work artifacts)
+
+Copy only the ePub content directories/files — exclude all work artifacts to prevent non-ePub files from ending up in the final package.
+
 ```bash
 cd "<work_dir>"
-# Copy everything except _translated/ and _staging/
-for item in $(ls -A | grep -v '^_translated$' | grep -v '^_staging$'); do
-  cp -r "$item" "$staging_dir/"
+# Copy only known ePub content: META-INF/, OEBPS/ (or equivalent content dir), mimetype
+# Exclude: _translated/, _staging/, any .py/.txt/.md files in the work root, and any other
+# directories/files that are not part of the original ePub structure.
+for item in META-INF OEBPS mimetype; do
+  [ -e "$item" ] && cp -r "$item" "$staging_dir/"
 done
 ```
+
+**Important**: The content directory may not always be `OEBPS/` — use the path prefix discovered in Step 4 (from `container.xml`). If the ePub uses a different directory name (e.g., `OPS/`, `content/`, or files at root level), adapt accordingly. The key principle: **only copy directories/files that are referenced in the ePub structure** (`container.xml` → `content.opf` → manifest items).
 
 #### 9.3: Overlay Translated Files
 ```bash
 # Copy all translated files over the staging copy, preserving directory structure
 cp -r "<work_dir>/_translated/"* "$staging_dir/" 2>/dev/null
-# Note: style_profile.md will be copied too but won't affect the ePub
-# Remove it from staging to keep the ePub clean
+# Remove non-ePub artifacts that may have been in _translated/
 rm -f "$staging_dir/style_profile.md"
 ```
+
+#### 9.3.1: Verify Staging Directory Cleanliness
+
+Before packaging, verify no artifacts leaked into staging:
+```bash
+# Check for common artifacts that should NOT be in the ePub
+find "$staging_dir" -name "*.py" -o -name "*.txt" -o -name "*.md" -o -name "*.log" \
+  -o -name "_*" -type d | head -20
+```
+If any unexpected files are found, remove them before proceeding.
 
 #### 9.4: Bilingual CSS Injection (bilingual mode only)
 If bilingual mode is active:
@@ -408,7 +452,8 @@ Tell the user upfront:
 - SVG text elements are not translated
 - `<ruby>`/`<rt>` annotations are preserved as-is
 - Table column widths may shift when translated text length differs significantly
-- Uses up to 3 parallel subagents for translation — each subagent handles a subset of chapters sequentially
+- Uses up to 3 parallel subagents for translation — each subagent handles up to 3 files or ~200 KB total, whichever limit is reached first
+- Large books may require multiple rounds of subagent dispatch (max 9 files per round across 3 agents)
 - Subagent dispatch has overhead; for books with ≤1 remaining chapters, translation is done directly without subagents
 - Resumability checks file existence only; if the source ePub changes between runs, delete `_translated/` to force re-translation
 - Bilingual mode auto-injects minimal CSS (`.translated { color: #555; font-size: 0.95em; }`); users may customize further
