@@ -9,7 +9,7 @@
 ![ePub 2 & 3](https://img.shields.io/badge/ePub-2%20%26%203-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
 
-## Quick Start
+## ⚡ Quick Start
 
 ```bash
 # Install (one time)
@@ -21,7 +21,7 @@ Translate ~/Downloads/my-book.epub to Chinese
 
 That's it. Claude handles extraction, style analysis, parallel translation, and repackaging. The output appears next to the original as `my-book_zh.epub`. **Your original file is never modified.**
 
-## Features
+## ✨ Features
 
 ### Style Profile — the key differentiator
 
@@ -66,7 +66,7 @@ You can override the auto-detected style with a custom hint: `"formal and academ
 
 > Code stays code. `os.path.join()` will never become "操作系统.路径.加入()".
 
-## Quality & Consistency
+## 🎯 Quality & Consistency
 
 **Why not just use DeepL or Google Translate?**
 
@@ -81,7 +81,7 @@ This skill works differently:
 
 The result reads like a book, not a patchwork of machine-translated fragments.
 
-## Real-world Benchmark
+## 📊 Real-world Benchmark
 
 | | Details |
 |---|---|
@@ -93,7 +93,7 @@ The result reads like a book, not a patchwork of machine-translated fragments.
 
 > This was the stress test that drove the [v0.3.0 improvements](https://github.com/ludengz/awesome-epub-translator-skill/releases/tag/v0.3.0) — size-aware dispatch, Write-only strategy, and completeness verification were all born from this translation.
 
-## Supported Languages
+## 🌍 Supported Languages
 
 Translate to (or from) any language Claude supports, including:
 
@@ -103,7 +103,7 @@ Translate to (or from) any language Claude supports, including:
 
 > Not limited to the list above — if Claude can read and write the language, this skill can translate it.
 
-## How It Works
+## 🔧 How It Works
 
 1. **Validate & extract** — unzips the ePub, verifies structure, checks for DRM encryption
 2. **Analyze style** — reads metadata and first-chapter prose to build a Style Profile capturing genre, tone, voice, and vocabulary approach
