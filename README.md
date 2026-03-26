@@ -1,19 +1,20 @@
-# Awesome ePub Translator Skill
+# Awesome ePub Translator
 
 > Translate entire ePub books with Claude — preserving the author's voice, not just the words.
 >
 > Built entirely in Markdown. No Python. No JavaScript. Just prompt instructions that dispatch 3 parallel Claude agents to translate a 22-chapter technical book end-to-end.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Claude Code](https://img.shields.io/badge/Claude%20Code-Skill-blueviolet)
+![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin-blueviolet)
 ![ePub 2 & 3](https://img.shields.io/badge/ePub-2%20%26%203-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
 
 ## ⚡ Quick Start
 
 ```bash
-# Install (one time)
-claude skill add ./awesome-epub-translator-skill
+# Install from marketplace (one time)
+/plugin marketplace add ludengz/claude-plugins
+/plugin install awesome-epub-translator@ludengz-plugins
 
 # Then in any Claude Code conversation:
 Translate ~/Downloads/my-book.epub to Chinese
@@ -122,17 +123,24 @@ All work happens in a separate `_translation_work/` directory. Your original fil
 - `unzip` available in your shell
 - Either `zip` or Python 3 for repackaging (Python is used as fallback on Windows)
 
-### Install the skill
+### Option A: Install from marketplace (recommended)
 
 ```bash
-claude skill add /path/to/awesome-epub-translator-skill
+# Add the marketplace (one time)
+/plugin marketplace add ludengz/claude-plugins
+
+# Install the plugin
+/plugin install awesome-epub-translator@ludengz-plugins
+
+# Activate
+/reload-plugins
 ```
 
-Or clone this repo:
+### Option B: Install from source
 
 ```bash
 git clone https://github.com/ludengz/awesome-epub-translator-skill.git
-claude skill add ./awesome-epub-translator-skill/awesome-epub-translator-skill
+claude --plugin-dir ./awesome-epub-translator-skill
 ```
 
 ### Verify prerequisites
@@ -142,7 +150,7 @@ unzip --version
 zip --version || python --version
 ```
 
-See [rules/install.md](awesome-epub-translator-skill/rules/install.md) for platform-specific instructions.
+See [rules/install.md](skills/awesome-epub-translator/rules/install.md) for platform-specific instructions.
 
 ## Usage
 
@@ -202,13 +210,16 @@ This skill detects DRM-encrypted ePubs (via `META-INF/encryption.xml`) and refus
 ## Project Structure
 
 ```
-awesome-epub-translator-skill/     # Skill package
-├── SKILL.md                       # Main skill definition (10-step workflow)
-├── references/
-│   ├── translation-prompt.md      # Translation prompt template
-│   └── epub-structure.md          # ePub format quick reference
-└── rules/
-    └── install.md                 # Platform-specific install instructions
+.claude-plugin/
+└── plugin.json                    # Plugin manifest (name, version, description)
+skills/
+└── awesome-epub-translator/       # Skill package
+    ├── SKILL.md                   # Main skill definition (10-step workflow)
+    ├── references/
+    │   ├── translation-prompt.md  # Translation prompt template
+    │   └── epub-structure.md      # ePub format quick reference
+    └── rules/
+        └── install.md             # Platform-specific install instructions
 ```
 
 ## See Also
